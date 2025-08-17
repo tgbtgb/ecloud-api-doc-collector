@@ -40,7 +40,7 @@ EcloudApiDocCollector/
 1. **克隆或下载项目**
    ```bash
    git clone <repository-url>
-   cd EcoludApiInfo
+   cd EcloudApiDocCollector
    ```
 
 2. **创建虚拟环境（推荐）**
