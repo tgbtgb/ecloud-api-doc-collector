@@ -3,14 +3,16 @@
 API文档采集工具 - 将树形结构的API文档转换为Markdown文件
 
 功能描述：
+- 支持三种采集模式：category（分类）、outline_id（大纲）、article_id（单个文章）
 - 通过API接口获取文档大纲树结构
 - 递归下载所有文档内容并转换为Markdown格式
+- 支持直接根据article_id获取单个文档
 - 同时下载PDF文件（如果可用）
 - 保持原有的目录结构
 - 支持错误处理和重试机制
 
 作者：AI Assistant
-版本：1.0
+版本：1.1
 """
 
 import requests
@@ -28,7 +30,7 @@ class APIDocCollector:
     API文档采集类
     
     主要功能：
-    1. 支持通过category或outline_id两种方式获取文档
+    1. 支持通过category、outline_id或article_id三种方式获取文档
     2. 通过API获取文档大纲树结构
     3. 递归下载文档内容
     4. 将HTML内容转换为Markdown格式
@@ -38,13 +40,14 @@ class APIDocCollector:
     属性：
         category (int, optional): 文档分类ID，用于获取outline_id
         outline_id (int, optional): 文档大纲ID，可直接指定或通过category获取
+        article_id (str, optional): 文章ID，用于直接获取单个文档
         output_dir (str): 输出目录路径
         base_api_url (str): API基础URL
         session (requests.Session): HTTP会话对象
         h (html2text.HTML2Text): HTML转Markdown转换器
     """
     
-    def __init__(self, category=None, outline_id=None, output_dir="api_docs"):
+    def __init__(self, category=None, outline_id=None, article_id=None, output_dir="api_docs"):
         """
         初始化采集对象
         
@@ -52,13 +55,15 @@ class APIDocCollector:
             category (int, optional): 文档分类ID，用于获取outline_id和文档树结构
                                     获取方法：在浏览器地址栏查看，如 https://ecloud.10086.cn/op-help-center/doc/category/729 中的729
             outline_id (int, optional): 文档大纲ID，可直接指定，优先级高于category
+            article_id (str, optional): 文章ID，用于直接获取单个文档，优先级最高
             output_dir (str): 输出目录路径，默认为"api_docs"
         """
-        if category is None and outline_id is None:
-            raise ValueError("必须提供category或outline_id中的至少一个参数")
+        if category is None and outline_id is None and article_id is None:
+            raise ValueError("必须提供category、outline_id或article_id中的至少一个参数")
         
         self.category = category
         self.outline_id = outline_id  # 可直接指定或通过API获取
+        self.article_id = article_id  # 直接指定文章ID
         self.output_dir = output_dir
         # 移动云API文档的基础URL
         self.base_api_url = "https://ecloud.10086.cn/op-help-center/request-api/service-api"
@@ -167,11 +172,86 @@ class APIDocCollector:
         print(f"获取大纲树: {url}")
 
         data = self.get_api_data(url)
-        if not data:
-            print("获取大纲树失败")
-            return None
+        if data:
+            return data
+        
+        # 如果直接获取失败，尝试备用方案：获取全量目录树并查找对应节点
+        print(f"直接获取outline_id {self.outline_id} 的目录树失败，尝试从全量目录树中查找")
+        return self.get_outline_tree_fallback()
 
-        return data
+    def get_outline_tree_fallback(self):
+        """
+        备用方案：从全量目录树中查找指定outline_id的子树
+        
+        Returns:
+            dict/None: 找到的子树数据，失败时返回None
+        """
+        url = f"{self.base_api_url}/outline/api/tree"
+        print(f"获取全量目录树: {url}")
+        
+        data = self.get_api_data(url)
+        if not data:
+            print("获取全量目录树失败")
+            return None
+        
+        # 在全量树中查找指定的outline_id节点
+        target_node = self.find_node_by_outline_id(data, self.outline_id)
+        if target_node:
+            print(f"在全量目录树中找到outline_id {self.outline_id} 对应的节点: {target_node.get('name', '未知')}")
+            return target_node
+        else:
+            print(f"在全量目录树中未找到outline_id {self.outline_id} 对应的节点")
+            return None
+    
+
+    
+
+    
+    def find_node_by_outline_id(self, node, target_outline_id):
+        """
+        递归查找指定outline_id的节点 - 深度优先遍历整个JSON树
+        
+        Args:
+            node (dict/list): 当前节点或节点列表
+            target_outline_id (int/str): 目标outline_id
+            
+        Returns:
+            dict/None: 找到的节点，未找到时返回None
+        """
+        if not node:
+            return None
+        
+        # 确保target_outline_id为字符串和整数两种格式都能匹配
+        target_id_str = str(target_outline_id)
+        target_id_int = None
+        try:
+            target_id_int = int(target_outline_id)
+        except (ValueError, TypeError):
+            pass
+        
+        # 处理单个节点或节点列表
+        nodes = [node] if isinstance(node, dict) else node
+        
+        for item in nodes:
+            if not isinstance(item, dict):
+                continue
+            
+            current_id = item.get('id')
+            
+            # 检查当前节点的id（支持字符串和整数比较）
+            if (current_id == target_outline_id or 
+                current_id == target_id_str or 
+                (target_id_int is not None and current_id == target_id_int)):
+                return item
+            
+            # 递归查找子节点 - 确保深度优先遍历所有子节点
+            children = item.get('children', [])
+            if children and isinstance(children, list) and len(children) > 0:
+                result = self.find_node_by_outline_id(children, target_outline_id)
+                if result:
+                    return result
+        
+        return None
 
     def parse_tree_node(self, node, level=0):
         """
@@ -445,24 +525,79 @@ class APIDocCollector:
             if item.get('children'):
                 self.print_tree_structure(item['children'], indent + 1)
 
+    def collect_single_article(self):
+        """
+        采集单个文章的函数
+        
+        执行流程：
+        1. 根据article_id获取文章信息
+        2. 提取文章内容和PDF
+        3. 保存为Markdown文件
+        
+        Returns:
+            bool: 采集是否成功
+        """
+        if not self.article_id:
+            print("错误：未提供article_id")
+            return False
+        
+        print(f"开始采集单个文章，article_id: {self.article_id}")
+        
+        # 获取文章信息
+        article_info = self.get_article_info(self.article_id)
+        if not article_info:
+            print(f"获取文章信息失败，article_id: {self.article_id}")
+            return False
+        
+        # 获取文章标题
+        article_title = article_info.get('title', f'article_{self.article_id}')
+        print(f"文章标题: {article_title}")
+        
+        # 创建输出目录
+        os.makedirs(self.output_dir, exist_ok=True)
+        
+        # 清理文件名
+        safe_title = self.sanitize_filename(article_title)
+        base_file_path = os.path.join(self.output_dir, safe_title)
+        
+        # 提取内容和PDF
+        content = self.extract_content_and_pdf(self.article_id, base_file_path)
+        if content:
+            # 写入Markdown文件
+            md_file_path = f"{base_file_path}.md"
+            with open(md_file_path, 'w', encoding='utf-8') as f:
+                f.write(f"# {article_title}\n\n")
+                f.write(content)
+            
+            print(f"文章已保存: {md_file_path}")
+            return True
+        else:
+            print(f"未找到文章内容，article_id: {self.article_id}")
+            return False
+
     def collect(self):
         """
         主要的采集函数
         
         执行流程：
-        1. 如果提供了category但未提供outline_id，则通过category获取outline_id
-        2. 获取文档大纲树
-        3. 解析树结构
-        4. 创建输出目录
-        5. 递归处理所有节点
+        1. 如果提供了article_id，则直接采集单个文章
+        2. 如果提供了category但未提供outline_id，则通过category获取outline_id
+        3. 获取文档大纲树
+        4. 解析树结构
+        5. 创建输出目录
+        6. 递归处理所有节点
         """
+        # 优先处理article_id模式
+        if self.article_id:
+            return self.collect_single_article()
+        
         # 确定使用方式
         if self.outline_id:
             print(f"开始API采集，使用outline_id: {self.outline_id}")
         elif self.category:
             print(f"开始API采集，使用category: {self.category}")
         else:
-            print("错误：未提供category或outline_id")
+            print("错误：未提供category、outline_id或article_id")
             return
 
         # 如果提供了category但未提供outline_id，则通过category获取outline_id
@@ -511,20 +646,33 @@ def main():
     - category: 文档分类ID，729为对象存储EOS的分类ID
                获取方法：在浏览器地址栏查看，如 https://ecloud.10086.cn/op-help-center/doc/category/729 中的729
     - outline_id: 文档大纲ID，可直接指定，优先级高于category
+    - article_id: 文章ID，用于直接获取单个文档，优先级最高
     - output_directory: 输出目录名称
     
     使用示例：
     1. 使用category: collector = APIDocCollector(category=729, output_dir="api_docs")
     2. 使用outline_id: collector = APIDocCollector(outline_id=12345, output_dir="api_docs")
-    3. 同时提供两者: collector = APIDocCollector(category=729, outline_id=12345, output_dir="api_docs")  # outline_id优先
-    """
-    # 配置参数 - 可以选择使用category或outline_id
+    3. 使用article_id: collector = APIDocCollector(article_id="article123", output_dir="api_docs")
+     4. 同时提供多个参数: collector = APIDocCollector(category=729, outline_id=12345, article_id="article123", output_dir="api_docs")  # article_id优先级最高
+     """
+    # 使用示例（三选一）：
+    # 1. 按分类采集（推荐）
+    # collector = APIDocCollector(category=729, output_dir="api_docs")
+    
+    # 2. 按大纲ID采集
+    # collector = APIDocCollector(outline_id=12345, output_dir="api_docs")
+    
+    # 3. 按文章ID采集单个文档
+    # collector = APIDocCollector(article_id="article123", output_dir="api_docs")
+    
+    # 配置参数 - 可以选择使用category、outline_id或article_id
     category = 729  # 对象存储 EOS 的 category ID，从浏览器地址栏获取
     outline_id = None  # 可以直接指定outline_id，优先级高于category
+    article_id = None  # 可以直接指定article_id，优先级最高
     output_directory = "api_docs"
 
-    # 创建采集并运行
-    collector = APIDocCollector(category=category, outline_id=outline_id, output_dir=output_directory)
+    # 创建采集器并运行
+    collector = APIDocCollector(category=category, outline_id=outline_id, article_id=article_id, output_dir=output_directory)
     collector.collect()
 
 

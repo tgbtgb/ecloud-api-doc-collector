@@ -4,24 +4,41 @@
 
 ## 功能特性
 
+### API文档采集功能
 - 🔍 **API驱动**: 通过官方API接口获取文档，无需解析HTML页面
 - 📁 **保持结构**: 完全保持原有的文档目录结构
 - 📝 **格式转换**: 自动将HTML内容转换为Markdown格式
 - 📄 **PDF下载**: 同时下载PDF文件（如果可用）
 - 🛡️ **错误处理**: 完善的错误处理和重试机制
 - ⚡ **高效采集**: 支持批量下载，自动处理延迟
-- 🎯 **灵活配置**: 支持自定义大纲ID和输出目录
+- 🎯 **灵活配置**: 支持自定义大纲ID、文章ID和输出目录
+- 📄 **单文档采集**: 支持通过文章ID直接获取单个文档（优先级最高）
+
+### 磁盘使用量收集功能
+- 🖥️ **资源监控**: 自动发现并监控指定资源池中的所有云主机
+- 💾 **磁盘分析**: 收集磁盘容量、使用量和使用率等详细数据
+- 📊 **分区级别**: 支持多分区磁盘的精确监控和统计
+- 📈 **Excel报告**: 生成格式化的Excel报告，包含资源ID等详细信息
+- 🔐 **安全认证**: 使用移动云AK/SK认证机制，支持多种配置方式
+- 🚀 **批量处理**: 支持大量服务器的批量数据收集和导出
+- 🛠️ **容错机制**: 即使部分资源获取失败也能生成完整报告
 
 ## 项目结构
 
 ```
-EcloudApiDocCollector/
-├── README.md                 # 项目说明文档
-├── requirements.txt          # Python依赖包
-├── api_doc_collector.py     # 核心采集类
-├── run_collector.py         # 命令行运行脚本
-└── api_docs/            # 采集结果目录
-    └── 对象存储 EOS/         # 示例：对象存储文档
+ecloud-api-doc-collector/
+├── README.md                    # 项目说明文档
+├── DISK_USAGE_README.md        # 磁盘使用量收集器专用文档
+├── requirements.txt             # Python依赖包
+├── config_example.py           # 配置文件示例
+├── api_doc_collector.py        # API文档采集核心类
+├── run_collector.py            # API文档采集命令行脚本
+├── disk_usage_collector.py     # 磁盘使用量收集器核心类
+├── ecloud_auth.py              # 移动云API认证模块
+├── run_disk_collector.py       # 磁盘使用量收集交互式脚本
+├── test_api_connection.py      # API连接测试脚本
+└── api_docs/                   # 采集结果目录
+    └── 对象存储 EOS/            # 示例：对象存储文档
         ├── API参考/
         ├── SDK文档/
         ├── 产品描述/
@@ -90,16 +107,38 @@ python run_collector.py --help
 
 ## 使用方法
 
-### 方法一：使用运行脚本（推荐）
+### API文档采集
 
-### 方法二：直接运行核心脚本
+#### 方法一：使用运行脚本（推荐）
+
+```bash
+# 使用默认参数（category=729）
+python run_collector.py
+
+# 指定分类ID
+python run_collector.py --category 729
+
+# 指定大纲ID
+python run_collector.py --outline-id 12345
+
+# 指定文章ID（优先级最高，直接获取单个文档）
+python run_collector.py --article-id "abc123"
+
+# 指定分类ID和输出目录
+python run_collector.py --category 729 --output-dir my_docs
+
+# 指定文章ID和输出目录
+python run_collector.py --article-id "abc123" --output-dir my_docs
+```
+
+#### 方法二：直接运行核心脚本
 
 ```bash
 # 修改api_doc_collector.py中的配置参数
 python api_doc_collector.py
 ```
 
-### 方法三：在代码中使用
+#### 方法三：在代码中使用
 
 ```python
 from api_doc_collector import APIDocCollector
@@ -110,14 +149,69 @@ collector = APIDocCollector(category=729, output_dir="api_docs")
 # 方式2：使用outline_id
 collector = APIDocCollector(outline_id=12345, output_dir="api_docs")
 
-# 方式3：同时提供两者（outline_id优先级更高）
-collector = APIDocCollector(category=729, outline_id=12345, output_dir="api_docs")
-
 # 开始采集
 collector.collect()
 ```
 
+### 磁盘使用量收集
+
+#### 1. 配置认证信息
+
+复制 `config_example.py` 为 `config.py` 并配置正确的API认证信息：
+
+```python
+# 移动云API配置
+ACCESS_KEY = "your_access_key"
+SECRET_KEY = "your_secret_key"
+BASE_URL = "https://api-wuxi-1.cmecloud.cn:8443"
+DEFAULT_POOL_ID = "CIDC-RP-01"
+```
+
+#### 2. 运行磁盘使用量收集器
+
+```bash
+# 使用默认配置运行
+python run_disk_collector.py
+
+# 指定自定义配置文件
+python run_disk_collector.py --config custom_config.py
+
+# 指定输出文件名
+python run_disk_collector.py --output disk_usage_report.xlsx
+```
+
+#### 3. 查看报告
+
+收集完成后，会在当前目录生成Excel报告文件，包含以下信息：
+- 资源ID和名称
+- 磁盘分区信息
+- 磁盘容量、使用量和使用率
+- 数据收集时间
+
+详细使用说明请参考：[磁盘使用量收集器文档](DISK_USAGE_README.md)
+
 ## 完整示例
+
+### 示例1：采集对象存储EOS文档
+
+```bash
+# 采集对象存储EOS分类下的所有文档
+python run_collector.py --category 729 --output-dir eos_docs
+```
+
+### 示例2：采集特定大纲的文档
+
+```bash
+# 采集指定大纲ID的文档
+python run_collector.py --outline-id 12345 --output-dir specific_docs
+```
+
+### 示例3：采集单个文章
+
+```bash
+# 直接获取指定文章ID的单个文档
+python run_collector.py --article-id "abc123" --output-dir single_doc
+```
 
 ### 采集对象存储EOS文档
 
@@ -151,6 +245,11 @@ collector.collect()
 - **outline_id** (optional): 文档大纲ID，可直接指定，优先级高于category
   - 如果同时提供category和outline_id，程序会优先使用outline_id
   - 适用于已知outline_id的情况，可以跳过category到outline_id的转换步骤
+
+- **article_id** (optional): 文章ID，优先级最高
+  - 用于直接获取单个文档
+  - 获取方法：在文档页面的浏览器地址栏查看，或通过API接口获取
+  - 当指定此参数时，将忽略category和outline-id参数
 
 - **output_dir**: 输出目录名称
   - 默认: `api_docs`
@@ -192,8 +291,9 @@ output_dir/
 
 主要的采集类，提供以下核心方法：
 
-- `__init__(category, outline_id, output_dir)`: 初始化采集
+- `__init__(category, outline_id, article_id, output_dir)`: 初始化采集
 - `collect()`: 执行采集流程
+- `collect_single_article(article_id)`: 采集单个文章（根据文章ID）
 - `get_outline_tree()`: 获取文档大纲树
 - `parse_tree_node(node, level)`: 解析树节点结构
 - `extract_content_and_pdf(article_id, base_file_path)`: 提取内容和PDF
@@ -227,10 +327,20 @@ output_dir/
 
 ## 依赖包说明
 
+### API文档采集相关依赖
 - `requests`: HTTP请求库，用于API调用
 - `html2text`: HTML转Markdown转换库
 - `beautifulsoup4`: HTML解析库（备用）
 - `lxml`: XML/HTML解析器
+
+### 磁盘使用量收集相关依赖
+- `pandas`: 数据处理和分析库，用于数据整理和Excel导出
+- `openpyxl`: Excel文件读写库，用于生成格式化的Excel报告
+- `argparse`: 命令行参数解析库（Python标准库）
+- `datetime`: 日期时间处理库（Python标准库）
+- `hashlib`: 哈希算法库，用于API签名生成（Python标准库）
+- `hmac`: HMAC算法库，用于API认证（Python标准库）
+- `urllib.parse`: URL编码解析库（Python标准库）
 
 ## 常见问题
 
