@@ -3,16 +3,17 @@
 API文档采集工具 - 将树形结构的API文档转换为Markdown文件
 
 功能描述：
-- 支持三种采集模式：category（分类）、outline_id（大纲）、article_id（单个文章）
+- 支持四种采集模式：category（分类）、outline_id（大纲）、article_id（单个文章）、默认模式（全量文档）
 - 通过API接口获取文档大纲树结构
 - 递归下载所有文档内容并转换为Markdown格式
 - 支持直接根据article_id获取单个文档
+- 支持默认模式：无参数时自动获取所有可用的API文档
 - 同时下载PDF文件（如果可用）
 - 保持原有的目录结构
 - 支持错误处理和重试机制
 
 作者：AI Assistant
-版本：1.1
+版本：1.2
 """
 
 import requests
@@ -30,12 +31,13 @@ class APIDocCollector:
     API文档采集类
     
     主要功能：
-    1. 支持通过category、outline_id或article_id三种方式获取文档
+    1. 支持通过category、outline_id、article_id或默认模式四种方式获取文档
     2. 通过API获取文档大纲树结构
     3. 递归下载文档内容
     4. 将HTML内容转换为Markdown格式
     5. 下载PDF文件（如果可用）
     6. 保持原有的目录结构保存文件
+    7. 默认模式：当所有参数都为None时，自动获取所有可用的API文档
     
     属性：
         category (int, optional): 文档分类ID，用于获取outline_id
@@ -45,6 +47,9 @@ class APIDocCollector:
         base_api_url (str): API基础URL
         session (requests.Session): HTTP会话对象
         h (html2text.HTML2Text): HTML转Markdown转换器
+    
+    采集模式优先级：
+        article_id > outline_id > category > 默认模式（全量文档）
     """
     
     def __init__(self, category=None, outline_id=None, article_id=None, output_dir="api_docs"):
@@ -57,9 +62,12 @@ class APIDocCollector:
             outline_id (int, optional): 文档大纲ID，可直接指定，优先级高于category
             article_id (str, optional): 文章ID，用于直接获取单个文档，优先级最高
             output_dir (str): 输出目录路径，默认为"api_docs"
+            
+        注意：
+            - 如果所有参数都为None，将进入默认模式，获取所有可用的API文档
+            - 参数优先级：article_id > outline_id > category > 默认模式
         """
-        if category is None and outline_id is None and article_id is None:
-            raise ValueError("必须提供category、outline_id或article_id中的至少一个参数")
+        # 移除必须提供参数的限制，支持默认模式
         
         self.category = category
         self.outline_id = outline_id  # 可直接指定或通过API获取
@@ -201,6 +209,26 @@ class APIDocCollector:
             return target_node
         else:
             print(f"在全量目录树中未找到outline_id {self.outline_id} 对应的节点")
+            return None
+    
+    def get_full_outline_tree(self):
+        """
+        获取全量文档树，用于默认模式
+        
+        当没有提供任何参数时，使用此方法获取所有可用的API文档树结构
+        
+        Returns:
+            dict/None: 全量文档树数据，失败时返回None
+        """
+        url = f"{self.base_api_url}/outline/api/tree"
+        print(f"默认模式：获取全量文档树: {url}")
+        
+        data = self.get_api_data(url)
+        if data:
+            print("成功获取全量文档树")
+            return data
+        else:
+            print("获取全量文档树失败")
             return None
     
 
@@ -582,10 +610,11 @@ class APIDocCollector:
         执行流程：
         1. 如果提供了article_id，则直接采集单个文章
         2. 如果提供了category但未提供outline_id，则通过category获取outline_id
-        3. 获取文档大纲树
-        4. 解析树结构
-        5. 创建输出目录
-        6. 递归处理所有节点
+        3. 如果没有提供任何参数，则进入默认模式，获取全量文档树
+        4. 获取文档大纲树
+        5. 解析树结构
+        6. 创建输出目录
+        7. 递归处理所有节点
         """
         # 优先处理article_id模式
         if self.article_id:
@@ -597,23 +626,29 @@ class APIDocCollector:
         elif self.category:
             print(f"开始API采集，使用category: {self.category}")
         else:
-            print("错误：未提供category、outline_id或article_id")
-            return
+            print("开始API采集，使用默认模式：获取所有可用文档")
 
-        # 如果提供了category但未提供outline_id，则通过category获取outline_id
+        # 获取文档树数据
+        tree_data = None
+        
         if self.category and not self.outline_id:
+            # 通过category获取outline_id，然后获取对应的树
             category_info = self.get_category_info()
             if not category_info:
                 print("获取分类信息失败，无法继续")
                 return
             print(f"通过category获取到outline_id: {self.outline_id}")
+            tree_data = self.get_outline_tree()
         elif self.outline_id:
+            # 直接使用outline_id获取树
             print(f"直接使用outline_id: {self.outline_id}")
-
-        # 从API获取大纲树
-        tree_data = self.get_outline_tree()
+            tree_data = self.get_outline_tree()
+        else:
+            # 默认模式：获取全量文档树
+            tree_data = self.get_full_outline_tree()
+        
         if not tree_data:
-            print("获取大纲树失败")
+            print("获取文档树失败")
             return
 
         # 解析树结构
@@ -650,10 +685,13 @@ def main():
     - output_directory: 输出目录名称
     
     使用示例：
-    1. 使用category: collector = APIDocCollector(category=729, output_dir="api_docs")
-    2. 使用outline_id: collector = APIDocCollector(outline_id=12345, output_dir="api_docs")
-    3. 使用article_id: collector = APIDocCollector(article_id="article123", output_dir="api_docs")
-     4. 同时提供多个参数: collector = APIDocCollector(category=729, outline_id=12345, article_id="article123", output_dir="api_docs")  # article_id优先级最高
+    1. 默认模式（获取所有文档）: collector = APIDocCollector(output_dir="api_docs")
+    2. 使用category: collector = APIDocCollector(category=729, output_dir="api_docs")
+    3. 使用outline_id: collector = APIDocCollector(outline_id=12345, output_dir="api_docs")
+    4. 使用article_id: collector = APIDocCollector(article_id="article123", output_dir="api_docs")
+    5. 同时提供多个参数: collector = APIDocCollector(category=729, outline_id=12345, article_id="article123", output_dir="api_docs")  # article_id优先级最高
+    
+    采集模式优先级：article_id > outline_id > category > 默认模式
      """
     # 使用示例（三选一）：
     # 1. 按分类采集（推荐）

@@ -13,6 +13,7 @@
 - ⚡ **高效采集**: 支持批量下载，自动处理延迟
 - 🎯 **灵活配置**: 支持自定义大纲ID、文章ID和输出目录
 - 📄 **单文档采集**: 支持通过文章ID直接获取单个文档（优先级最高）
+- 🌐 **默认模式**: 无参数时自动获取所有可用的API文档（全量采集）
 
 ### 磁盘使用量收集功能
 - 🖥️ **资源监控**: 自动发现并监控指定资源池中的所有云主机
@@ -86,7 +87,7 @@ ecloud-api-doc-collector/
 ### 第二步：运行采集
 
 ```bash
-# 使用默认参数（category=729）
+# 默认模式（获取所有可用文档）
 python run_collector.py
 
 # 指定分类ID
@@ -94,6 +95,9 @@ python run_collector.py --category 729
 
 # 指定大纲ID
 python run_collector.py --outline-id 12345
+
+# 指定文章ID（单个文档）
+python run_collector.py --article-id "abc123"
 
 # 指定分类ID和输出目录
 python run_collector.py --category 729 --output-dir my_docs
@@ -112,7 +116,7 @@ python run_collector.py --help
 #### 方法一：使用运行脚本（推荐）
 
 ```bash
-# 使用默认参数（category=729）
+# 默认模式（获取所有可用的API文档）
 python run_collector.py
 
 # 指定分类ID
@@ -129,6 +133,9 @@ python run_collector.py --category 729 --output-dir my_docs
 
 # 指定文章ID和输出目录
 python run_collector.py --article-id "abc123" --output-dir my_docs
+
+# 默认模式指定输出目录
+python run_collector.py --output-dir all_docs
 ```
 
 #### 方法二：直接运行核心脚本
@@ -143,11 +150,17 @@ python api_doc_collector.py
 ```python
 from api_doc_collector import APIDocCollector
 
-# 方式1：使用category（推荐）
+# 方式1：默认模式（获取所有可用文档）
+collector = APIDocCollector(output_dir="api_docs")
+
+# 方式2：使用category
 collector = APIDocCollector(category=729, output_dir="api_docs")
 
-# 方式2：使用outline_id
+# 方式3：使用outline_id
 collector = APIDocCollector(outline_id=12345, output_dir="api_docs")
+
+# 方式4：使用article_id（单个文档）
+collector = APIDocCollector(article_id="abc123", output_dir="api_docs")
 
 # 开始采集
 collector.collect()
@@ -192,21 +205,28 @@ python run_disk_collector.py --output disk_usage_report.xlsx
 
 ## 完整示例
 
-### 示例1：采集对象存储EOS文档
+### 示例1：默认模式（全量采集）
+
+```bash
+# 获取所有可用的API文档
+python run_collector.py --output-dir all_api_docs
+```
+
+### 示例2：采集对象存储EOS文档
 
 ```bash
 # 采集对象存储EOS分类下的所有文档
 python run_collector.py --category 729 --output-dir eos_docs
 ```
 
-### 示例2：采集特定大纲的文档
+### 示例3：采集特定大纲的文档
 
 ```bash
 # 采集指定大纲ID的文档
 python run_collector.py --outline-id 12345 --output-dir specific_docs
 ```
 
-### 示例3：采集单个文章
+### 示例4：采集单个文章
 
 ```bash
 # 直接获取指定文章ID的单个文档
@@ -232,8 +252,13 @@ python run_collector.py --article-id "abc123" --output-dir single_doc
 
 ### 主要参数
 
+- **默认模式** (无参数): 获取所有可用的API文档
+  - 当不提供任何参数时，程序会自动使用全量文档树接口
+  - 使用API: `https://ecloud.10086.cn/op-help-center/request-api/service-api/outline/api/tree`
+  - 适用于需要获取所有API文档的场景
+
 - **category** (optional): 文档分类ID，用于指定要采集的文档类型
-  - `729`: 对象存储 EOS（默认）
+  - `729`: 对象存储 EOS
   - 其他ID: 根据实际需要设置
   - **获取方法**：
     1. 打开移动云帮助中心：https://ecloud.10086.cn/op-help-center/
@@ -255,12 +280,21 @@ python run_collector.py --article-id "abc123" --output-dir single_doc
   - 默认: `api_docs`
   - 自定义: 任意有效的目录名
 
+### 采集模式优先级
+
+程序支持四种采集模式，优先级从高到低为：
+1. **article_id模式**: 直接获取单个文档（优先级最高）
+2. **outline_id模式**: 根据大纲ID获取文档树
+3. **category模式**: 根据分类ID获取文档树
+4. **默认模式**: 获取所有可用的API文档（优先级最低）
+
 ### API配置
 
 程序使用移动云的官方API接口：
 - 基础URL: `https://ecloud.10086.cn/op-help-center/request-api/service-api`
 - 分类信息API: `/category/info/{category}` - 获取outline_id
 - 大纲树API: `/outline/tree?outlineId={outline_id}` - 获取文档结构
+- 全量文档树API: `/outline/api/tree` - 获取所有可用文档（默认模式）
 - 请求头: 模拟浏览器访问，包含User-Agent等信息
 
 ## 输出格式
@@ -291,19 +325,24 @@ output_dir/
 
 主要的采集类，提供以下核心方法：
 
-- `__init__(category, outline_id, article_id, output_dir)`: 初始化采集
-- `collect()`: 执行采集流程
+- `__init__(category, outline_id, article_id, output_dir)`: 初始化采集器，支持四种模式
+- `collect()`: 执行采集流程，自动根据参数选择采集模式
 - `collect_single_article(article_id)`: 采集单个文章（根据文章ID）
-- `get_outline_tree()`: 获取文档大纲树
+- `get_outline_tree()`: 获取文档大纲树（category/outline_id模式）
+- `get_full_outline_tree()`: 获取全量文档树（默认模式）
 - `parse_tree_node(node, level)`: 解析树节点结构
 - `extract_content_and_pdf(article_id, base_file_path)`: 提取内容和PDF
 - `create_directory_structure(items, current_path)`: 创建目录结构
 
 ### 工作流程
 
-1. **参数验证**: 检查是否提供了category或outline_id
-2. **获取分类信息**: 如果提供了category但未提供outline_id，则通过category获取outline_id
-3. **获取大纲树**: 通过outline_id获取文档的树形结构
+1. **参数验证**: 检查采集模式（article_id > outline_id > category > 默认模式）
+2. **模式选择**: 根据提供的参数选择相应的采集模式
+   - **article_id模式**: 直接采集单个文档
+   - **outline_id模式**: 通过outline_id获取文档树
+   - **category模式**: 通过category获取outline_id，再获取文档树
+   - **默认模式**: 使用全量文档树API获取所有文档
+3. **获取文档结构**: 根据模式获取相应的文档树结构
 4. **解析节点**: 递归解析所有节点，识别叶子节点和分支节点
 5. **下载内容**: 对叶子节点下载文档内容和PDF文件
 6. **格式转换**: 将HTML内容转换为Markdown格式
@@ -367,9 +406,18 @@ A: 可以修改`extract_content_and_pdf`方法来自定义内容处理逻辑。
 
 ## 更新日志
 
+- v1.2: 新增默认模式功能
+  - 支持无参数时自动获取所有可用的API文档
+  - 添加`get_full_outline_tree`方法
+  - 更新文档说明和使用示例
+  - 完善采集模式优先级说明
+- v1.1: 新增article_id功能
+  - 支持通过文章ID直接获取单个文档
+  - 添加`collect_single_article`方法
+  - 更新run_collector.py支持--article-id参数
 - v1.0: 初始版本，支持基本的API文档采集功能
-- 添加了详细的中文注释和错误处理
-- 完善了README文档和使用说明
+  - 添加了详细的中文注释和错误处理
+  - 完善了README文档和使用说明
 
 ## 贡献
 
